@@ -1,1 +1,1 @@
-# AutoScaper
+# AutoScraper
