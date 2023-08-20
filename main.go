@@ -5,12 +5,15 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
 var searchPostcode string = "GU7%201EU" // gudulming station
-var searchRadius string = "200"         // miles
+var searchRadius string = "5"           // miles
 var searchMinimumModelYear string = "2020"
 var autoTraderBaseURL string = "https://www.autotrader.co.uk/"
 
@@ -46,43 +49,58 @@ func saveToFile(input string, filename string) {
 
 func scrapeAutoTrader() []car {
 	currentPage := 1
-	res := fetchHTML(autoTraderBaseURL + fmt.Sprintf("/car-search?year-from=%s&postcode=%s&radius=%s&page=%v", searchMinimumModelYear, searchPostcode, searchRadius, currentPage))
-	defer res.Body.Close()
-	// Load the HTML document
-	doc, err := goquery.NewDocumentFromReader(res.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fullDoc, _ := goquery.OuterHtml(doc.Find("html"))
-	saveToFile(fullDoc, "resp.html")
-
+	var pageCount int
 	var cars []car
+	for {
+		res := fetchHTML(autoTraderBaseURL + fmt.Sprintf("/car-search?year-from=%s&postcode=%s&radius=%s&page=%v", searchMinimumModelYear, searchPostcode, searchRadius, currentPage))
+		defer res.Body.Close()
 
-	// Find the review items
-	doc.Find("li[class='search-page__result']").Each(func(i int, s *goquery.Selection) {
-		carDetails := s.Find("section[class='product-card-details']")
-		carName := carDetails.Find("h3[class='product-card-details__title']")
-		var keySpecs []string
-		carDetails.Find("li").Each(func(i int, k *goquery.Selection) {
-			keySpecs = append(keySpecs, k.Text())
-		})
-
-		carPrice := s.Find("div[class='product-card-pricing__price']")
-
-		detailsLinkAnchorTag := s.Find("a[data-results-nav-fpa]")
-		detailsLink, exists := detailsLinkAnchorTag.Attr("href")
-		if exists != true {
-			log.Fatal("No link found for car")
+		doc, err := goquery.NewDocumentFromReader(res.Body)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		a, _ := goquery.OuterHtml(carPrice)
-		fmt.Printf("Price %d: %s\n", i, a)
+		//        fullDoc, _ := goquery.OuterHtml(doc.Find("html"))
+		//       saveToFile(fullDoc, "resp.html")
 
-		car := car{name: carName.Text(), price: carPrice.Text(), detailsLink: detailsLink, keySpecs: keySpecs}
-		cars = append(cars, car)
-	})
+		if pageCount == 0 {
+			pageCountString := doc.Find("li[class='paginationMini__count']").Text()
+			pageCountStringAfterSplit := strings.Split(pageCountString, " ")[3]
+			pageCountNoCommaString := strings.Replace(pageCountStringAfterSplit, ",", "", -1)
+			pageCount, err = strconv.Atoi(pageCountNoCommaString)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		if currentPage > pageCount {
+			break
+		} else {
+			fmt.Printf("On page %v of %v\n", currentPage, pageCount)
+		}
 
+		doc.Find("li[class='search-page__result']").Each(func(i int, s *goquery.Selection) {
+			carDetails := s.Find("section[class='product-card-details']")
+			carName := carDetails.Find("h3[class='product-card-details__title']")
+			var keySpecs []string
+			carDetails.Find("li").Each(func(i int, k *goquery.Selection) {
+				keySpecs = append(keySpecs, k.Text())
+			})
+
+			carPrice := s.Find("div[class='product-card-pricing__price']")
+
+			detailsLinkAnchorTag := s.Find("a[data-results-nav-fpa]")
+			detailsLink, exists := detailsLinkAnchorTag.Attr("href")
+			if !exists {
+				log.Fatal("No link found for car")
+			}
+
+			car := car{name: carName.Text(), price: carPrice.Text(), detailsLink: detailsLink, keySpecs: keySpecs}
+			cars = append(cars, car)
+		})
+
+		time.Sleep(1 * time.Second)
+		currentPage++
+	}
 	return cars
 
 }
