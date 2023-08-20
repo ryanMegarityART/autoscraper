@@ -1,1 +1,4 @@
 # AutoScraper
+
+![Screenshot](InitialProcessDesign.png)
+
